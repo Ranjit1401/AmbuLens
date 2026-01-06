@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ambulens - Emergency Assistance</title>
-  <script src="/_sdk/element_sdk.js"></script>
+  
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body {
@@ -275,7 +275,12 @@
     }
   </style>
   <style>@view-transition { navigation: auto; }</style>
-  <script src="/_sdk/data_sdk.js" type="text/javascript"></script>
+  <link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
  </head>
  <body class="h-full overflow-auto">
   <div id="app" class="w-full h-full"></div>
@@ -1184,6 +1189,7 @@
               </div>
             </div>
           </div>
+          
 
           <!-- Right Side: Status Updates -->
           <div class="w-full lg:w-1/2 fade-in">
@@ -1200,6 +1206,7 @@
                 Please wait while we handle your emergency
               </p>
             </div>
+            
 
             <div class="bg-card rounded-2xl shadow-lg p-4 md:p-6 lg:p-8 space-y-6">
               <!-- Status Item 1: Location -->
@@ -1282,6 +1289,32 @@
         </div>
       `;
     }
+    function loadMap(lat, lng) {
+      const iframe = document.getElementById("map-iframe");
+      const loading = document.getElementById("map-loading");
+    
+      iframe.src =
+        `https://www.openstreetmap.org/export/embed.html` +
+        `?bbox=${lng-0.01}%2C${lat-0.01}%2C${lng+0.01}%2C${lat+0.01}` +
+        `&layer=mapnik&marker=${lat}%2C${lng}`;
+    
+      iframe.onload = () => {
+        if (loading) loading.style.display = "none";
+      };
+    }
+    
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        loadMap(pos.coords.latitude, pos.coords.longitude);
+      },
+      () => {
+        // fallback location
+        loadMap(19.2183, 73.1527); // Ulhasnagar
+      }
+    );
+
+
+    
 
     // SCREEN 5: CASE COMPLETION
     function renderCompletion() {
@@ -2049,21 +2082,9 @@
         if (message) {
           addChatMessage(message, 'user');
           chatInput.value = '';
+          sendToBackend(message);
           
-          // Bot responses based on context
-          setTimeout(() => {
-            if (chatMessages.length === 1) {
-              addChatMessage('I will auto-detect your location now.', 'bot');
-              
-              setTimeout(() => {
-                addChatMessage('Location detected: 123 Main Street, Downtown', 'bot');
-                
-                setTimeout(() => {
-                  navigateToPayment();
-                }, 1500);
-              }, 1500);
-            }
-          }, 800);
+          
         }
       }
 
@@ -2116,6 +2137,24 @@
       messagesContainer.appendChild(messageDiv);
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
+    async function sendToBackend(text) {
+      const res = await fetch("http://127.0.0.1:8000/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text })
+      });
+    
+      const data = await res.json();
+    
+      addChatMessage(data.reply, "bot");
+    
+      if (data.need_help === true) {
+        setTimeout(() => {
+          navigateToPayment();
+        }, 1500);
+      }
+    }
+    
 
     function setupVoiceListeners() {
       const voiceBtn = document.getElementById('voice-record-btn');
@@ -2268,87 +2307,85 @@
     }
 
     function loadUserLocationMap() {
-      // Try to get user's location
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (position) => {
             const lat = position.coords.latitude;
             const lon = position.coords.longitude;
-            
-            // Load map with user location
+    
             const mapIframe = document.getElementById('map-iframe');
             const mapLoading = document.getElementById('map-loading');
             const locationBadge = document.getElementById('location-badge');
             const locationAddress = document.getElementById('location-address');
-            
+    
             if (mapIframe) {
-              // Use Google Maps Embed API with user's location
-              mapIframe.src = `https://www.google.com/maps/embed/v1/place?key=AIzaSyBFw0Qbyq9zTFTd-tuw0MvdSA82p2s3O8E&q=${lat},${lon}&zoom=15`;
-              
-              // Reverse geocode to get address
+              // ✅ OpenStreetMap iframe (FREE)
+              mapIframe.src =
+                `https://www.openstreetmap.org/export/embed.html` +
+                `?bbox=${lon - 0.01}%2C${lat - 0.01}%2C${lon + 0.01}%2C${lat + 0.01}` +
+                `&layer=mapnik&marker=${lat}%2C${lon}`;
+    
+              // Reverse geocode (already correct 👍)
               fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`)
-                .then(response => response.json())
+                .then(res => res.json())
                 .then(data => {
                   const address = data.display_name || `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
                   emergencyData.location = address;
-                  
-                  if (locationAddress) {
-                    locationAddress.textContent = address;
-                  }
+                  if (locationAddress) locationAddress.textContent = address;
                 })
                 .catch(() => {
-                  const fallbackAddress = `Coordinates: ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
-                  emergencyData.location = fallbackAddress;
-                  if (locationAddress) {
-                    locationAddress.textContent = fallbackAddress;
-                  }
+                  const fallback = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+                  emergencyData.location = fallback;
+                  if (locationAddress) locationAddress.textContent = fallback;
                 });
-              
-              // Hide loading, show map and badge
-              setTimeout(() => {
+    
+              // Hide loader
+              mapIframe.onload = () => {
                 if (mapLoading) mapLoading.classList.add('hidden');
                 if (locationBadge) locationBadge.classList.remove('hidden');
-              }, 1500);
+              };
             }
           },
-          (error) => {
-            // Location access denied or error - use default location
+          () => {
             useDefaultLocation();
           }
         );
       } else {
-        // Geolocation not supported - use default location
         useDefaultLocation();
       }
     }
+    
 
     function useDefaultLocation() {
       const mapIframe = document.getElementById('map-iframe');
       const mapLoading = document.getElementById('map-loading');
       const locationBadge = document.getElementById('location-badge');
       const locationAddress = document.getElementById('location-address');
-      
-      // Default to New York City coordinates
-      const defaultLat = 40.7128;
-      const defaultLon = -74.0060;
-      const defaultAddress = "New York, NY, United States";
-      
+    
+      // Example fallback (India – change if needed)
+      const defaultLat = 19.2183;
+      const defaultLon = 73.1527;
+      const defaultAddress = "Ulhasnagar, Maharashtra, India";
+    
       emergencyData.location = defaultAddress;
-      
+    
       if (mapIframe) {
-        mapIframe.src = `https://www.google.com/maps/embed/v1/place?key=AIzaSyBFw0Qbyq9zTFTd-tuw0MvdSA82p2s3O8E&q=${defaultLat},${defaultLon}&zoom=13`;
+        mapIframe.src =
+          `https://www.openstreetmap.org/export/embed.html` +
+          `?bbox=${defaultLon - 0.02}%2C${defaultLat - 0.02}%2C${defaultLon + 0.02}%2C${defaultLat + 0.02}` +
+          `&layer=mapnik&marker=${defaultLat}%2C${defaultLon}`;
       }
-      
+    
       if (locationAddress) {
         locationAddress.textContent = defaultAddress;
       }
-      
-      setTimeout(() => {
+    
+      mapIframe.onload = () => {
         if (mapLoading) mapLoading.classList.add('hidden');
         if (locationBadge) locationBadge.classList.remove('hidden');
-      }, 1500);
+      };
     }
-
+    
     function setupCompletionListeners() {
       const continueBtn = document.getElementById('continue-feedback-btn');
       if (continueBtn) {
@@ -2858,5 +2895,7 @@
 
     init();
   </script>
- <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b811815063a3b7f',t:'MTc2NzQyODYwNi4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+  
+
+ </body>
 </html>
